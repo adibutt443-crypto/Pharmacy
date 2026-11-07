@@ -312,7 +312,7 @@ function save(){
 const n=v=>Math.round((+v||0)*100)/100,
 m=v=>n(v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}),
 esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
-nid=()=>localStorage.getItem('pos_fb_cfg')?Date.now()*1000+(D.seq.id++%1000):D.seq.id++,today=()=>ld(),
+nid=()=>D.seq.id++,today=()=>ld(),
 val=i=>$('#'+i).value,S=(a,f)=>a.reduce((x,y)=>x+f(y),0);
 
 function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',2600)}
@@ -1978,79 +1978,5 @@ guide=function(){
   }catch(e){go(null,false)}
 })();
 </script>
-<script>
-(function(){
-const CK='pos_fb_cfg',B='https://www.gstatic.com/firebasejs/10.12.2/';
-const DEF={apiKey:"AIzaSyBXOTDSPp5XE8IHBR75jLwlGnwfM5vjwvg",authDomain:"pharmacy-74e1f.firebaseapp.com",databaseURL:"https://pharmacy-74e1f-default-rtdb.firebaseio.com",projectId:"pharmacy-74e1f",storageBucket:"pharmacy-74e1f.firebasestorage.app",messagingSenderId:"274682059236",appId:"1:274682059236:web:3a66036f92da28cfc84ff1"};
-const AR=['items','bills','parties','pay','exp','returns','adj','closings','holds'];
-let cfg=null;try{cfg=JSON.parse(localStorage.getItem(CK)||'null')}catch(e){}
-let dev=localStorage.getItem('pos_dev');if(!dev){dev=Math.random().toString(36).slice(2,8);localStorage.setItem('pos_dev',dev)}
-let F,au,auth,db,uid,sh={},ready=0,pt=0,rt=0,ap=0;
-const btn=document.createElement('div');
-btn.style.cssText='position:fixed;right:8px;bottom:8px;z-index:99999;background:#0e7c86;color:#fff;padding:6px 10px;border-radius:16px;font:12px sans-serif;cursor:pointer;opacity:.92';
-btn.onclick=()=>setup();document.body.appendChild(btn);
-const st=t=>btn.textContent='☁ '+t;
-const kk=(c,r)=>c==='users'?String(r.user).toLowerCase():String(r.id);
-function recs(){const o={};
- AR.forEach(c=>(D[c]||[]).forEach(r=>{if(r&&r.id!=null)o[c+'~'+r.id]=JSON.stringify(r)}));
- (D.users||[]).forEach(u=>o['users~'+kk('users',u)]=JSON.stringify(u));
- const m={};Object.keys(D).forEach(k=>{if(!AR.includes(k)&&k!=='users'&&k!=='audit'&&k!=='savedAt')m[k]=D[k]});
- o['meta~m']=JSON.stringify(m);return o}
-function apply(k,v){
- const c=k.split('~')[0],id=k.slice(k.indexOf('~')+1);
- if(c==='meta'){if(v===null)return;const m=JSON.parse(v),s=D.seq||{};Object.assign(D,m);
-  if(m.seq){D.seq={};Object.keys(m.seq).forEach(x=>D.seq[x]=Math.max(m.seq[x]||0,s[x]||0));Object.keys(s).forEach(x=>{if(!(x in D.seq))D.seq[x]=s[x]})}return}
- const a=D[c]=D[c]||[],i=a.findIndex(r=>kk(c,r)===id);
- if(v===null){if(i>=0)a.splice(i,1)}else{const r=JSON.parse(v);if(i>=0)a[i]=r;else a.push(r)}}
-function rr(){clearTimeout(rt);rt=setTimeout(()=>{const a=document.activeElement;
- if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))return rr();
- try{if(currentUser)render();else if(D.users.length)toggleAuth('login')}catch(e){}},1500)}
-const _s=window.save;
-window.save=function(){_s.apply(this,arguments);if(ready){clearTimeout(pt);pt=setTimeout(push,800)}};
-function push(){
- if(!ready||ap)return;const cur=recs(),w=[];
- for(const k in cur)if(sh[k]!==cur[k])w.push([k,cur[k]]);
- for(const k in sh)if(!(k in cur))w.push([k,null]);
- if(!w.length)return;st('syncing…');
- for(let i=0;i<w.length;i+=400){const b=F.writeBatch(db);
-  w.slice(i,i+400).forEach(([k,v])=>{const r=F.doc(db,'pos',uid,'r',encodeURIComponent(k));
-   if(v===null){delete sh[k];b.delete(r)}else{sh[k]=v;b.set(r,{k,v,d:dev,t:Date.now()})}});
-  b.commit().then(()=>st('synced ✓')).catch(()=>st('error'))}}
-function listen(){
- F.onSnapshot(F.collection(db,'pos',uid,'r'),s=>{
-  ap=1;let ch=0;
-  s.docChanges().forEach(x=>{const d=x.doc.data(),k=d.k;
-   if(x.type==='removed'){if(k in sh){delete sh[k];apply(k,null);ch++}}
-   else if(sh[k]!==d.v){sh[k]=d.v;apply(k,d.v);ch++}});
-  ap=0;
-  if(ch){try{D.savedAt=Date.now();_s();rr()}catch(e){}}
-  if(!s.metadata.fromCache){ready=1;push();st(s.metadata.hasPendingWrites?'syncing…':'synced ✓')}
-  else if(!ready)st('connecting…')
- },()=>st('error'))}
-async function init(){
- if(!cfg)return st('set up sync');
- try{st('connecting…');
-  const m=await Promise.all([import(B+'firebase-app.js'),import(B+'firebase-auth.js'),import(B+'firebase-firestore.js')]);
-  F=m[2];au=m[1];const app=m[0].initializeApp(cfg.c);
-  db=F.initializeFirestore(app,{localCache:F.persistentLocalCache({tabManager:F.persistentMultipleTabManager()})});
-  auth=au.getAuth(app);
-  au.onAuthStateChanged(auth,u=>{if(!u){st('tap to sign in');return}uid=u.uid;listen()});
- }catch(e){st('offline (local only)')}}
-async function setup(){
- if(cfg&&auth&&auth.currentUser){if(confirm('Cloud sync is ON ('+cfg.e+').\nSign out and remove sync from this device?')){try{await au.signOut(auth)}catch(e){}localStorage.removeItem(CK);location.reload()}return}
- let c=(cfg&&cfg.c)||DEF;
- if(!c){const t=prompt('Paste your firebaseConfig from Firebase console:');if(!t)return;
-  try{c=new Function('return('+t.replace(/^[^{]*/,'').replace(/[;\s]*$/,'')+')')()}catch(e){return alert('Config not understood.')}}
- const e=prompt('Shop cloud email (the one you made in Firebase):',cfg&&cfg.e||'');if(!e)return;
- const p=prompt('Shop cloud password:');if(!p)return;
- cfg={c,e};localStorage.setItem(CK,JSON.stringify(cfg));
- if(!auth){await init();await new Promise(r=>setTimeout(r,400))}
- if(!auth)return alert('Could not load Firebase. Check internet.');
- try{await au.signInWithEmailAndPassword(auth,e,p)}
- catch(x){if(confirm('Account not found / wrong password.\nCreate a NEW cloud account with this email?')){try{await au.createUserWithEmailAndPassword(auth,e,p)}catch(y){alert('Failed: '+y.code)}}}}
-init();
-})();
-</script>
-
 </body>
 </html>
