@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Pharmacy POS - Powered by AHAD</title>
+<meta name="theme-color" content="#073b4c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pharmacy POS">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" id="pwaManifest" href="data:application/manifest+json,%7B%7D">
 <style>
 :root{--bg:#eef3f4;--card:#fff;--tx:#10262b;--mu:#5f747a;--ac:#0e7c86;--bd:#d8e3e5;--warn:#b45309;--bad:#b42318;--ok:#16794c}
 :root[data-theme="dark"]{--bg:#0c171a;--card:#14242a;--tx:#e4eef0;--mu:#8da4ab;--ac:#3cc4cf;--bd:#25393f;--warn:#f5a54a;--bad:#ff8a7a;--ok:#4cd694}
@@ -854,7 +862,7 @@ function printInv(id,mode){
   st.textContent=mode=='th'?'@page{size:80mm auto;margin:2mm}':'@page{size:A4;margin:10mm}';
   setTimeout(()=>window.print(),80);
 }
-window.addEventListener('afterprint',()=>{const a=$('#printArea');if(a)a.innerHTML=''});
+/* print area is kept until the next print: on phones 'afterprint' fires before Save-as-PDF finishes, which made the PDF blank */
 
 /* ---------- Bills history ---------- */
 const BT={bills:['sale','purchase'],pur:['purchase'],sale:['sale']},LIM={bills:0,pur:20,sale:20};
@@ -1976,6 +1984,45 @@ guide=function(){
       }catch(e){try{db.close()}catch(x){}go(null,false)}
     };
   }catch(e){go(null,false)}
+})();
+</script>
+<script>
+/* ---------- PWA: install name follows the pharmacy name from Settings ---------- */
+(function(){
+  var last='',url='';
+  function base(){return new URL('./',location.href).href}
+  function build(name){
+    var b=base();
+    var m={name:name,short_name:name.length>12?name.slice(0,12):name,start_url:b,scope:b,id:b,display:'standalone',orientation:'any',
+      background_color:'#073b4c',theme_color:'#073b4c',
+      icons:[{src:b+'icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},
+             {src:b+'icon-512.png',sizes:'512x512',type:'image/png',purpose:'any'},
+             {src:b+'icon-maskable-512.png',sizes:'512x512',type:'image/png',purpose:'maskable'}]};
+    return JSON.stringify(m);
+  }
+  window.pwaSync=function(){
+    try{
+      var n='';
+      try{n=(D&&D.shop&&D.shop.name)||''}catch(e){}
+      if(n)try{localStorage.setItem('pwa_name',n)}catch(e){}
+      else try{n=localStorage.getItem('pwa_name')||''}catch(e){}
+      n=(n||'Pharmacy POS').trim();
+      if(n===last)return;
+      last=n;
+      var blob=new Blob([build(n)],{type:'application/manifest+json'});
+      var u=URL.createObjectURL(blob);
+      document.getElementById('pwaManifest').setAttribute('href',u);
+      if(url)URL.revokeObjectURL(url);
+      url=u;
+      var t=document.querySelector('meta[name="apple-mobile-web-app-title"]');if(t)t.setAttribute('content',n);
+    }catch(e){}
+  };
+  pwaSync();
+  [1500,4000,8000].forEach(function(t){setTimeout(pwaSync,t)});
+  try{var _s=save;save=function(){var r=_s.apply(this,arguments);pwaSync();return r}}catch(e){}
+  if('serviceWorker' in navigator&&location.protocol!=='file:'){
+    window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})});
+  }
 })();
 </script>
 </body>
