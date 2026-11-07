@@ -1960,6 +1960,21 @@ guide=function(){
   <details><summary>Recovery code</summary><p>A recovery code is shown once when the first Admin is created. Keep it safe; it is needed to erase or reset the app if the password is forgotten.</p></details></div>`;
 };
 
+/* ---------- license hooks ---------- */
+(function(){
+  const _lg=login;
+  login=async function(){
+    if(window.licGuard&&!(await licGuard()))return;
+    const r=await _lg.apply(this,arguments);
+    if(currentUser&&window.licWarn)setTimeout(licWarn,1500);
+    return r;
+  };
+  const _dl=data;
+  data=function(){return _dl()+(isAdmin()&&window.licCard?licCard():'')};
+  const _gl=guide;
+  guide=function(){return _gl()+`<h2>License</h2><div class="card guide"><details><summary>Activating the app</summary><p>The app needs a license key. Open Settings to see this device's ID, send it to AHAD and paste the key you receive. The key works only on this device. When it expires the app asks for a new key; your data is not lost.</p></details></div>`};
+})();
+
 </script>
 <script>
 /* storage bootstrap: read the main data from IndexedDB first, then start the app scripts */
@@ -2023,6 +2038,126 @@ guide=function(){
   if('serviceWorker' in navigator&&location.protocol!=='file:'){
     window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})});
   }
+})();
+</script>
+<script>
+/* ---------- LICENSE (offline, signed keys; only AHAD's private key can make a valid key) ---------- */
+(function(){
+  var PUB={"kty":"EC","crv":"P-256","x":"E0OMx3SqM24cJdUx13cvku0zI5uvXI5U5-aoW9oDWXw","y":"CkgvE3f7z3OgBBTiC6dsWYj2UO1_ZVubRTEbz_uMnj4"};
+  var CONTACT_WA=''; /* optional: your WhatsApp number with country code, e.g. 923001234567 */
+  var LS_ID='pos_inst',LS_LIC='pos_lic',LS_SEEN='pos_seen';
+  var st={ok:false,pending:true,exp:'',days:null,msg:''};
+  var pend=null;
+  function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
+  function devId(){
+    var id=ls(LS_ID);
+    if(id&&/^[A-Z2-9]{12}$/.test(id))return id;
+    var A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',b=new Uint8Array(12),s='',i;
+    try{crypto.getRandomValues(b)}catch(e){for(i=0;i<12;i++)b[i]=Math.floor(Math.random()*256)}
+    for(i=0;i<12;i++)s+=A[b[i]%A.length];
+    ls(LS_ID,s);return s;
+  }
+  function fmtId(s){return s.replace(/(.{4})(?=.)/g,'$1-')}
+  function b64d(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var r=atob(s),u=new Uint8Array(r.length);for(var i=0;i<r.length;i++)u[i]=r.charCodeAt(i);return u}
+  function ymd(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+  function daysLeft(exp){var a=new Date(ymd()+'T00:00:00'),b=new Date(exp+'T00:00:00');return Math.round((b-a)/864e5)}
+  async function verify(key){
+    var r={ok:false,msg:'',exp:'',days:null};
+    if(!(window.crypto&&crypto.subtle&&window.TextEncoder)){r.msg='License check needs a secure page (https). Open the app from its https link.';return r}
+    try{
+      var p=String(key||'').replace(/\s+/g,'').split('.');
+      if(p.length!==2){r.msg='Invalid license key.';return r}
+      var payload=b64d(p[0]),sig=b64d(p[1]);
+      var k=await crypto.subtle.importKey('jwk',PUB,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+      var ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},k,sig,payload);
+      if(!ok){r.msg='Invalid license key.';return r}
+      var f=new TextDecoder().decode(payload).split('|');
+      if(f[0]!=='AHAD1'||f.length<3){r.msg='Invalid license key.';return r}
+      if(f[1]!==devId()){r.msg='This key was made for a different device. Send this device\'s ID to get a new key.';return r}
+      if(f[2]==='0'){r.ok=true;r.exp='';r.days=null;return r}
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(f[2])){r.msg='Invalid license key.';return r}
+      var now=Date.now(),seen=+ls(LS_SEEN)||0;
+      if(seen&&now<seen-36*3600e3){r.msg='Device date/time looks wrong. Correct it and try again.';return r}
+      if(now>seen)ls(LS_SEEN,String(now));
+      var d=daysLeft(f[2]);
+      if(d<0){r.msg='License expired on '+f[2]+'. Enter a new key.';r.exp=f[2];r.days=d;return r}
+      r.ok=true;r.exp=f[2];r.days=d;return r;
+    }catch(e){r.msg='Invalid license key.';return r}
+  }
+  function check(){
+    var key=ls(LS_LIC);
+    if(!key){st={ok:false,pending:false,exp:'',days:null,msg:''};return Promise.resolve(st)}
+    return verify(key).then(function(r){st={ok:r.ok,pending:false,exp:r.exp,days:r.days,msg:r.msg};return st});
+  }
+  function $(i){return document.getElementById(i)}
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function build(){
+    if($('licOverlay'))return;
+    var d=document.createElement('div');d.id='licOverlay';
+    d.style.cssText='display:none;position:fixed;inset:0;z-index:500;background:linear-gradient(135deg,#073b4c,#0e7c86);align-items:center;justify-content:center;padding:16px;overflow:auto';
+    d.innerHTML='<div class="poster-card" style="max-width:440px"><h1>Activate License</h1><div class="sub">Powered by AHAD</div>'
+      +'<div style="text-align:left"><label>Your Device ID</label>'
+      +'<div style="display:flex;gap:8px"><input id="licId" readonly style="font:600 16px/1.2 monospace;letter-spacing:1px;text-align:center"><button class="s sm" style="margin:0" onclick="licCopyId()">Copy</button></div>'
+      +'<div style="font-size:12px;color:var(--mu);margin-top:4px">Send this ID to AHAD to get your license key.</div>'
+      +(CONTACT_WA?'<button class="s" style="width:100%" onclick="licWA()">Send ID on WhatsApp</button>':'')
+      +'<label style="margin-top:14px">License Key</label><textarea id="licKey" rows="4" placeholder="Paste your license key here" style="font:12px monospace" autocomplete="off" spellcheck="false"></textarea></div>'
+      +'<button class="p" id="licBtn" style="width:100%;margin-top:12px" onclick="licActivate()">Activate</button>'
+      +'<div id="licMsg" style="margin-top:10px;font-size:13px;min-height:18px;color:var(--bad)"></div>'
+      +'<a href="#" id="licCancel" style="display:none;color:var(--mu);font-size:13px" onclick="licHide();return false">Cancel</a></div>';
+    document.body.appendChild(d);
+  }
+  function show(optional,msg){
+    build();$('licId').value=fmtId(devId());
+    $('licMsg').style.color='var(--bad)';$('licMsg').textContent=msg||'';
+    $('licCancel').style.display=optional?'inline':'none';
+    $('licOverlay').style.display='flex';
+  }
+  function hide(){var o=$('licOverlay');if(o)o.style.display='none'}
+  window.licCopyId=function(){
+    var t=fmtId(devId());
+    try{navigator.clipboard.writeText(t).then(function(){$('licMsg').style.color='var(--ok)';$('licMsg').textContent='Device ID copied.'})}
+    catch(e){$('licId').select();try{document.execCommand('copy')}catch(x){}}
+  };
+  window.licWA=function(){window.open('https://wa.me/'+CONTACT_WA+'?text='+encodeURIComponent('License request. Device ID: '+fmtId(devId())),'_blank')};
+  window.licHide=hide;
+  window.licActivate=async function(){
+    var k=$('licKey').value.trim(),b=$('licBtn');
+    if(!k){$('licMsg').style.color='var(--bad)';$('licMsg').textContent='Paste the license key first.';return}
+    b.disabled=true;
+    try{
+      var r=await verify(k);
+      if(!r.ok){$('licMsg').style.color='var(--bad)';$('licMsg').textContent=r.msg;return}
+      ls(LS_LIC,k.replace(/\s+/g,''));
+      st={ok:true,pending:false,exp:r.exp,days:r.days,msg:''};
+      hide();$('licKey').value='';
+      var t=document.getElementById('toast');if(t){t.textContent='License activated.'+(r.exp?' Valid until '+r.exp+'.':'');t.style.display='block';setTimeout(function(){t.style.display='none'},2600)}
+      if(window.render&&window.currentUser)try{render()}catch(e){}
+    }finally{b.disabled=false}
+  };
+  /* used by the app */
+  window.licState=function(){return st};
+  window.licShow=show;
+  window.licGuard=async function(){ /* true when the app may be used; shows the screen otherwise */
+    if(st.pending&&pend)await pend;
+    if(st.ok&&st.exp&&daysLeft(st.exp)<0){await check()}
+    if(st.ok)return true;
+    show(false,st.msg);return false;
+  };
+  window.licInfo=function(){return {id:fmtId(devId()),ok:st.ok,exp:st.exp,days:st.days}};
+  window.licCard=function(){
+    var i=licInfo(),s=i.ok?(i.exp?'Active - expires '+esc(i.exp)+' ('+i.days+' days left)':'Active - lifetime license'):'Not active';
+    return '<div class="card"><b>License</b><div class="'+(i.ok?'pos':'neg')+'" style="margin:6px 0;font-weight:600">'+s+'</div>'
+      +'<div class="empty">Device ID: <b style="font-family:monospace;color:var(--tx)">'+esc(i.id)+'</b></div>'
+      +'<button class="s" onclick="licShow(true)">Enter / change license key</button></div>';
+  };
+  window.licWarn=function(){
+    var i=licInfo();
+    if(i.ok&&i.exp&&i.days<=7){var t=document.getElementById('toast');if(t){t.textContent='License expires in '+i.days+' day'+(i.days===1?'':'s')+' ('+i.exp+'). Contact AHAD to renew.';t.style.display='block';setTimeout(function(){t.style.display='none'},5000)}}
+  };
+  /* start: verify the saved key, then re-check every minute */
+  devId();
+  pend=check().then(function(r){if(!r.ok&&document.body)show(false,r.msg);return r});
+  setInterval(function(){check().then(function(r){if(!r.ok)show(false,r.msg)})},60000);
 })();
 </script>
 </body>
